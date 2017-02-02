@@ -30,11 +30,11 @@ describe('karma accessibility adapter', function() {
             var config = {
                 accessibility: {
                     url: 'http://localhost:9876/debug.html',
-                    printRules: false,
+                    printRules: true,
                     // auditRulesToRun: [],
                     // auditRulesToIgnore: [],
                     // scope: 'body',
-                    // showUnsupportedRulesWarning: false,
+                    showUnsupportedRulesWarning: false,
                     maxResults: 0,
                     ignoreBySelector: {
                         lowContrast: ['.no-contrast'],
