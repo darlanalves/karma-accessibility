@@ -1,146 +1,161 @@
-var formatFailedStep = function(step) {
+/*eslint no-unused-vars: ["error", { "varsIgnorePattern": "(createStartFn)" }]*/
 
-  var stack = step.trace.stack;
-  var message = step.message;
-  if (stack) {
-    // remove the trailing dot
-    var firstLine = stack.substring(0, stack.indexOf('\n') - 1);
-    if (message && message.indexOf(firstLine) === -1) {
-      stack = message + '\n' + stack;
-    }
-
-    // remove jasmine stack entries
-    return stack.replace(/\n.+jasmine\.js\?\d*\:.+(?=(\n|$))/g, '');
-  }
-
-  return message;
-};
-
-var indexOf = function(collection, item) {
-  if (collection.indexOf) {
-    return collection.indexOf(item);
-  }
-
-  for (var i = 0, ii = collection.length; i < ii; i++) {
-    if (collection[i] === item) {
-      return i;
-    }
-  }
-
-  return -1;
-};
-
+'use strict';
 
 /**
- * Very simple reporter for jasmine
+ * Karma starter function factory.
+ *
+ * This function is invoked from the wrapper.
+ * @see  adapter.wrapper
+ *
+ * @param  {Object}   karma        Karma runner instance.
+ * @return {Function}              Karma starter function.
  */
-var TestacularReporter = function(tc) {
+function createStartFn (karma) {
+    // This function will be assigned to `window.__karma__.start`:
+    return function (done) {
+        var clientConfig = (karma.config || {}).accessibility || {};
 
-  var failedIds = [];
-
-  this.reportRunnerStarting = function(runner) {
-    tc.info({total: runner.specs().length});
-  };
-
-  this.reportRunnerResults = function(runner) {
-    tc.store('jasmine.lastFailedIds', failedIds);
-    tc.complete({
-      coverage: window.__coverage__
-    });
-  };
-
-  this.reportSuiteResults = function(suite) {
-    // memory clean up
-    suite.after_ = null;
-    suite.before_ = null;
-    suite.queue = null;
-  };
-
-  this.reportSpecStarting = function(spec) {
-    spec.results_.time = new Date().getTime();
-  };
-
-  this.reportSpecResults = function(spec) {
-    var result = {
-      id: spec.id,
-      description: spec.description,
-      suite: [],
-      success: spec.results_.failedCount === 0,
-      skipped: spec.results_.skipped,
-      time: spec.results_.skipped ? 0 : new Date().getTime() - spec.results_.time,
-      log: []
-    };
-
-    var suitePointer = spec.suite;
-    while (suitePointer) {
-      result.suite.unshift(suitePointer.description);
-      suitePointer = suitePointer.parentSuite;
-    }
-
-    if (!result.success) {
-      var steps = spec.results_.items_;
-      for (var i = 0; i < steps.length; i++) {
-        if (!steps[i].passed_) {
-          result.log.push(formatFailedStep(steps[i]));
+        if (clientConfig.printRules) {
+            printAvailableRules();
         }
-      }
 
-      failedIds.push(result.id);
+        if (clientConfig.url) {
+            parseDocumentFromUrl(clientConfig.url, run);
+            return;
+        }
+
+        if (clientConfig.html) {
+            run(clientConfig.html);
+            return;
+        }
+
+        karma.error(new Error('Invalid url or HTML text to audit. Provide a value to "url" or "html" configuration.'));
+
+        function run(html) {
+            if (!html) {
+                karma.error(new Error('HTML provided is not valid or document is empty'));
+                return;
+            }
+
+            clientConfig.document = parseHTML(html);
+            runAudit(clientConfig);
+
+            if (done) { done(); }
+        }
     }
 
-    tc.result(result);
+    function parseDocumentFromUrl(url, callback) {
+        var request = new XMLHttpRequest();
 
-    // memory clean up
-    spec.results_ = null;
-    spec.spies_ = null;
-    spec.queue = null;
-  };
+        request.onload = function(response) {
+            callback(request.responseText || '');
+        };
 
-  this.log = function() {};
-};
+        request.onerror = function() {
+            callback('');
+        };
 
-
-var createStartFn = function(tc, jasmineEnvPassedIn) {
-  return function(config) {
-    // we pass jasmineEnv during testing
-    // in production we ask for it lazily, so that adapter can be loaded even before jasmine
-    var jasmineEnv = jasmineEnvPassedIn || window.jasmine.getEnv();
-    var currentSpecsCount = jasmineEnv.nextSpecId_;
-    var lastCount = tc.store('jasmine.lastCount');
-    var lastFailedIds = tc.store('jasmine.lastFailedIds');
-
-    tc.store('jasmine.lastCount', currentSpecsCount);
-    tc.store('jasmine.lastFailedIds', []);
-
-    // filter only last failed specs
-    if (lastCount === currentSpecsCount && // still same number of specs
-        lastFailedIds.length > 0 &&        // at least one fail last run
-        !jasmineEnv.exclusive_) {          // no exclusive mode (iit, ddesc)
-
-      jasmineEnv.specFilter = function(spec) {
-        return indexOf(lastFailedIds, spec.id) !== -1;
-      };
+        request.open('GET', url);
+        request.send(null);
     }
 
+    function parseHTML(html) {
+        var doc = document.implementation.createHTMLDocument('widget');
+        doc.documentElement.innerHTML = html;
 
-
-    jasmineEnv.addReporter(new TestacularReporter(tc));
-    jasmineEnv.execute();
-  };
-};
-
-
-var createDumpFn = function(tc, serialize) {
-  return function() {
-
-    var args = Array.prototype.slice.call(arguments, 0);
-
-    if (serialize) {
-      for (var i = 0; i < args.length; i++) {
-        args[i] = serialize(args[i]);
-      }
+        return doc;
     }
 
-    tc.info({dump: args});
-  };
-};
+    function applyAuditConfig(target, clientConfig) {
+        target.scope = clientConfig.document;
+
+        if (clientConfig.scope !== undefined) {
+            target.scope = target.scope.querySelector(clientConfig.scope);
+        }
+
+        if (clientConfig.auditRulesToRun !== undefined) {
+            target.auditRulesToRun = clientConfig.auditRulesToRun;
+        }
+
+        if (clientConfig.auditRulesToIgnore !== undefined) {
+            target.auditRulesToIgnore = clientConfig.auditRulesToIgnore;
+        }
+
+        if (clientConfig.withConsoleApi !== undefined) {
+            target.withConsoleApi = !!clientConfig.withConsoleApi;
+        }
+
+        if (clientConfig.showUnsupportedRulesWarning !== undefined) {
+            target.showUnsupportedRulesWarning = !!clientConfig.showUnsupportedRulesWarning;
+        }
+
+        if (clientConfig.maxResults !== undefined) {
+            target.maxResults = Number(clientConfig.maxResults) || 0;
+        }
+
+        // if (clientConfig.ignoreSelectors !== undefined) {
+        // }
+    }
+
+    function runAudit(clientConfig) {
+        var AuditConfig = axs.AuditConfiguration;
+        var config = new AuditConfig();
+        applyAuditConfig(config, clientConfig);
+
+        if (config.target) {
+            karma.error(new Error('Scope selector not found: ' + clientConfig.scope));
+            return;
+        }
+
+        var startTime = new Date().getTime();
+        var auditOutput = axs.Audit.run(config);
+        var endTime = new Date().getTime();
+        var duration = endTime - startTime;
+
+        var PossibleResults = axs.constants.AuditResult;
+
+        karma.info({ total: auditOutput.length, specs: [] });
+
+        auditOutput.forEach(function(o, index) {
+            var isNotApplicable = o.result === PossibleResults.NA;
+
+            var rule = o.rule;
+            var isFailure = o.result === PossibleResults.FAIL;
+            var description = formatRuleDescription(rule);
+            var logMessage = isFailure && [rule.heading + '\n' + rule.url] || '';
+
+            var resultObject = {
+                id: index,
+                description: description,
+                suite: [],
+                log: logMessage,
+                success: !isFailure,
+                skipped: isNotApplicable,
+                time: duration,
+                executedExpectationsCount: index + 1
+            };
+
+            karma.result(resultObject);
+        });
+
+        karma.complete();
+    }
+
+    function printAvailableRules(rules) {
+        var rules = axs.AuditRules.specs;
+        var ruleNames = Object.keys(rules);
+
+        var ruleDescriptions = ruleNames.map(function(name) {
+            var rule = rules[name];
+            return '  ' + formatRuleDescription(rule);
+        });
+
+        console.log('> Available rules:');
+        console.log(ruleDescriptions.join('\n'));
+    }
+
+    function formatRuleDescription(rule) {
+        return '[' + rule.name + ']: ' + rule.heading;
+    }
+}
