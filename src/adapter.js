@@ -94,8 +94,17 @@ function createStartFn (karma) {
             target.maxResults = Number(clientConfig.maxResults) || 0;
         }
 
-        // if (clientConfig.ignoreSelectors !== undefined) {
-        // }
+        if (clientConfig.ignoreBySelector !== undefined) {
+            var ignoreBySelector = clientConfig.ignoreBySelector;
+
+            Object.keys(ignoreBySelector).forEach(function(ruleName) {
+                var selectors = ignoreBySelector[ruleName];
+
+                selectors.forEach(function (selector) {
+                    target.ignoreSelectors(ruleName, selector);
+                });
+            });
+        }
     }
 
     function runAudit(clientConfig) {
